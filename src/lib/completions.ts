@@ -2,6 +2,8 @@ import { db, newId, type AppDB } from '../db/db';
 import type { Completion, LedgerEntry, StoredBlob, TrashEntry } from '../types/models';
 import { jobById } from './jobs';
 import { autoEntriesForJob, sumKidzos } from './ledger';
+import { isPassportValidOn, levelOn } from './passport';
+import { localDateISO } from './format';
 
 export interface PhotoPair {
   full: Blob;
@@ -18,6 +20,8 @@ export interface AddCompletionInput {
   chargeKidzos?: boolean;
   /** 依表定新臺幣自動記一筆自費（預設 true） */
   recordTwd?: boolean;
+  /** 依蓋章當天的護照等級套用加碼／減免（預設 false；蓋章頁預設開啟） */
+  applyPassportPerk?: boolean;
 }
 
 export interface BalanceCheck {
@@ -43,6 +47,14 @@ function photoBlobs(photo: PhotoPair): { full: StoredBlob; thumb: StoredBlob } {
   };
 }
 
+/** 某個時間點有效的護照等級（無護照、未辦理或已過期 → null） */
+export async function passportLevelAt(at: number, d: AppDB = db) {
+  const child = await d.child.get('kid');
+  const day = localDateISO(at);
+  if (!child?.passport || !isPassportValidOn(child.passport, child.birthday, day)) return null;
+  return levelOn(child.passport, day);
+}
+
 export async function addCompletion(
   input: AddCompletionInput,
   d: AppDB = db,
@@ -57,10 +69,11 @@ export async function addCompletion(
     completedAt: at,
     note: input.note?.trim() || undefined,
   };
+  const perkLevel = input.applyPassportPerk ? await passportLevelAt(at, d) : null;
   const entries = autoEntriesForJob(
     job,
     { completionId: completion.id, visitId: input.visitId, at },
-    { chargeKidzos: input.chargeKidzos, recordTwd: input.recordTwd },
+    { chargeKidzos: input.chargeKidzos, recordTwd: input.recordTwd, perkLevel },
   );
   await d.transaction('rw', [d.completions, d.ledger, d.blobs, d.outbox], async () => {
     if (input.photo) {

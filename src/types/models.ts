@@ -64,7 +64,52 @@ export interface ChildProfile {
   /** 'YYYY-MM-DD'；尚未設定為 null */
   birthday: string | null;
   avatarBlobId?: string;
+  /** v0.3.0：B·KidZanian 市民護照（選填；舊資料沒有） */
+  passport?: CitizenPassport | null;
+  /** v0.3.0：門票價格預設（選填；沒有時用官方預設） */
+  ticketPrices?: TicketPriceTable;
 }
+
+// ───────── v0.3.0 市民護照與門票（全部選填欄位，舊 App 讀到不會壞） ─────────
+
+/** model＝模範市民、outstanding＝傑出市民、honor＝榮譽市民 */
+export type PassportLevel = 'model' | 'outstanding' | 'honor';
+
+export interface CitizenPassport {
+  /** 辦理日 'YYYY-MM-DD'（當天出示護照即開始有權益） */
+  issuedOn: string;
+  /** 辦理費（新臺幣） */
+  fee: number;
+  /** 對應的台幣支出帳（twd_fee／passport） */
+  feeEntryId?: string;
+  /** 升級紀錄（到現場換發後手動記錄），依日期排序 */
+  upgrades: { level: Exclude<PassportLevel, 'model'>; date: string }[];
+  /** 遺失補發：等級保留、舊章不轉移 */
+  replacements: { date: string; fee: number; entryId?: string }[];
+}
+
+export type TicketTypeId = 'child' | 'adult' | 'senior' | 'careChild' | 'careAdult' | 'infant';
+
+export interface TicketPriceTable {
+  prices: Record<TicketTypeId, number>;
+  /** 使用者最後修改日期；沒有＝官方預設 */
+  updatedOn?: string;
+}
+
+/** 一行門票（同票種、同價格） */
+export interface VisitTicket {
+  /** 官方票種，或 'custom'（自訂／其他優惠：通路優惠、團體票…） */
+  type: TicketTypeId | 'custom';
+  label: string;
+  qty: number;
+  /** 每張原價 */
+  listPrice: number;
+  /** 每張實付 */
+  paidPrice: number;
+  note?: string;
+}
+
+export type TwdCategory = 'passport' | 'ticket' | 'job' | 'other';
 
 export interface Visit {
   id: string;
@@ -74,6 +119,8 @@ export interface Visit {
   startingKidzos: number;
   notes?: string;
   createdAt: number;
+  /** v0.3.0：這次入園的門票；undefined＝未記錄（不是 0 元） */
+  tickets?: VisitTicket[];
 }
 
 export interface Completion {
@@ -110,6 +157,10 @@ export interface LedgerEntry {
   /** 蓋章自動產生的帳；刪除完成紀錄時一起處理 */
   completionId?: string;
   note?: string;
+  /** v0.3.0：新臺幣支出分類；舊資料沒有時，有 jobId 視為 job、否則 other */
+  twdCategory?: TwdCategory;
+  /** v0.3.0：護照權益帶來的 kidZos 效果（加碼或少付的數量，正數） */
+  passportBonus?: number;
 }
 
 export type BlobKind = 'photo' | 'thumb' | 'official-map';

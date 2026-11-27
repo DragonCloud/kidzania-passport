@@ -5,6 +5,7 @@ import { FilterSheet } from '../components/FilterSheet';
 import { IconFilter, IconSearch } from '../components/icons';
 import { JobCard } from '../components/JobCard';
 import { SyncBadge } from '../components/sync/SyncBadge';
+import { PassportExpiryNote } from '../components/passport/StampProgressCard';
 import { useChild } from '../hooks/useChild';
 import { useCompletions } from '../hooks/useCompletions';
 import { canJoinNow, eligibility, formatAge } from '../lib/age';
@@ -72,6 +73,7 @@ export default function HomePage() {
             {displayName}現在 <b className="text-ink">{formatAge(age)}</b>，可參加 {joinableCount} 項
           </p>
         )}
+        <PassportExpiryNote />
       </header>
 
       {needsSetup && (

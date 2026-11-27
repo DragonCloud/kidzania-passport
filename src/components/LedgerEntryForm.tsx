@@ -2,8 +2,12 @@ import { useState } from 'react';
 import { addManualEntry, deleteEntry, LEDGER_TYPE_LABEL, MANUAL_TYPES, updateEntry } from '../lib/ledger';
 import { formatDateTime, fromLocalInput, toLocalInput } from '../lib/format';
 import { jobById } from '../lib/jobs';
-import type { LedgerEntry, LedgerType } from '../types/models';
+import type { LedgerEntry, LedgerType, TwdCategory } from '../types/models';
 import { BottomSheet } from './BottomSheet';
+import { usePassport } from '../hooks/usePassport';
+import { TWD_CATEGORY_LABEL, twdCategoryOf } from '../lib/costs';
+import { localDateISO } from '../lib/format';
+import { isPassportValidOn, LEVEL_LABEL, levelOn, PERKS } from '../lib/passport';
 
 /** 各類型的正負號規則：fixed＝固定方向；choose＝讓使用者選 */
 const SIGN_RULE: Record<LedgerType, { fixed?: 1 | -1; plus?: string; minus?: string }> = {
@@ -54,12 +58,20 @@ function Inner({ entry, visitId, onClose }: { entry: LedgerEntry | null; visitId
   const [when, setWhen] = useState(toLocalInput(entry?.at ?? Date.now()));
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [category, setCategory] = useState<TwdCategory>(entry ? twdCategoryOf(entry) : 'other');
+  const [bonus, setBonus] = useState(entry?.passportBonus ?? 0);
+  const [items, setItems] = useState(1);
+  const pass = usePassport();
 
   const rule = SIGN_RULE[type];
   const effectiveSign = rule.fixed ?? sign;
   const isAuto = !!entry && (entry.type === 'grant' || entry.type === 'earn' || entry.type === 'spend' || !!entry.completionId);
   const currency = type === 'twd_fee' ? 'TWD' : 'kidZos';
   const job = entry?.jobId ? jobById(entry.jobId) : undefined;
+  const whenMs = fromLocalInput(when);
+  const whenDay = whenMs === null ? pass.today : localDateISO(whenMs);
+  const perkLevel = pass.passport && isPassportValidOn(pass.passport, pass.birthday, whenDay) ? levelOn(pass.passport, whenDay) : null;
+  const shopCut = perkLevel ? PERKS[perkLevel].shopPerItem * items : 0;
 
   async function save() {
     const n = Number(amount);
@@ -74,8 +86,12 @@ function Inner({ entry, visitId, onClose }: { entry: LedgerEntry | null; visitId
     }
     setBusy(true);
     try {
-      if (entry) await updateEntry(entry.id, { amount: effectiveSign * n, note: note.trim() || undefined, at, ...(isAuto ? {} : { type }) });
-      else await addManualEntry({ visitId, type, amount: effectiveSign * n, currency, note, at });
+      const extra = {
+        ...(currency === 'TWD' ? { twdCategory: category } : {}),
+        ...(type === 'purchase' ? { passportBonus: bonus || undefined } : {}),
+      };
+      if (entry) await updateEntry(entry.id, { amount: effectiveSign * n, note: note.trim() || undefined, at, ...(isAuto ? {} : { type }), ...extra });
+      else await addManualEntry({ visitId, type, amount: effectiveSign * n, currency, note, at, ...extra });
       onClose();
     } catch (e) {
       setError(e instanceof Error ? e.message : '儲存失敗');
@@ -167,6 +183,80 @@ function Inner({ entry, visitId, onClose }: { entry: LedgerEntry | null; visitId
           />
         </div>
       </label>
+
+      {type === 'purchase' && perkLevel && (
+        <div className="mt-3 rounded-2xl bg-brand/5 p-3 ring-1 ring-brand/20">
+          {bonus > 0 ? (
+            <p className="flex items-center justify-between gap-2 text-sm">
+              <span>
+                已套用{LEVEL_LABEL[perkLevel]}減免，少付 <b>{bonus}</b> kidZos
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  setAmount(String((Number(amount) || 0) + bonus));
+                  setBonus(0);
+                }}
+                className="text-xs font-bold text-ink/50 underline"
+              >
+                取消
+              </button>
+            </p>
+          ) : (
+            <div className="flex items-center gap-2">
+              <span className="min-w-0 flex-1 text-sm">
+                {LEVEL_LABEL[perkLevel]}每件少 {PERKS[perkLevel].shopPerItem}
+                <span className="block text-xs text-ink/50">金額先填原價合計</span>
+              </span>
+              <label className="flex items-center gap-1 text-sm">
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  min={1}
+                  value={items}
+                  onChange={(e) => setItems(Math.max(1, Math.floor(Number(e.target.value) || 1)))}
+                  className="w-12 rounded-lg bg-white px-1.5 py-1 text-center tabular-nums ring-1 ring-ink/15"
+                  aria-label="件數"
+                />
+                件
+              </label>
+              <button
+                type="button"
+                disabled={!(Number(amount) > 0)}
+                onClick={() => {
+                  const list = Number(amount) || 0;
+                  const cut = Math.min(shopCut, list);
+                  setAmount(String(list - cut));
+                  setBonus(cut);
+                }}
+                className="rounded-full bg-brand px-3 py-1.5 text-sm font-bold text-white disabled:opacity-40"
+              >
+                套用減免
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {currency === 'TWD' && (
+        <>
+          <h3 className="mt-4 mb-2 text-sm font-bold text-ink/70">支出分類</h3>
+          <div className="flex flex-wrap gap-2">
+            {(['ticket', 'job', 'other', 'passport'] as const).map((c) => (
+              <button
+                key={c}
+                type="button"
+                aria-pressed={category === c}
+                onClick={() => setCategory(c)}
+                className={`rounded-full px-3 py-1.5 text-sm font-medium ring-1 ${category === c ? 'bg-ink text-white ring-ink' : 'bg-white ring-ink/15'}`}
+              >
+                {TWD_CATEGORY_LABEL[c]}
+              </button>
+            ))}
+          </div>
+          {category === 'ticket' && <p className="mt-1.5 text-xs text-ink/50">一般門票建議在錢包的「記錄門票」填，可分票種、算省下多少。</p>}
+        </>
+      )}
 
       <label className="mt-4 block">
         <span className="text-sm font-bold text-ink/70">時間</span>

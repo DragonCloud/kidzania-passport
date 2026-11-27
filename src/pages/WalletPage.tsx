@@ -7,6 +7,9 @@ import { BottomSheet } from '../components/BottomSheet';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { LedgerEntryForm } from '../components/LedgerEntryForm';
 import { LedgerList } from '../components/LedgerList';
+import { CostOverview } from '../components/passport/CostOverview';
+import { TicketSheet } from '../components/passport/TicketSheet';
+import { ticketTotals } from '../lib/tickets';
 import { PageHeader } from '../components/PageHeader';
 import { useToday } from '../hooks/useToday';
 import { useVisits } from '../hooks/useVisits';
@@ -45,6 +48,7 @@ export default function WalletPage() {
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<LedgerEntry | null>(null);
   const [visitSheet, setVisitSheet] = useState(false);
+  const [ticketSheet, setTicketSheet] = useState(false);
 
   const hasToday = visits.some((v) => v.visitDate === today);
   const kidzos = sumKidzos(entries);
@@ -105,8 +109,11 @@ export default function WalletPage() {
                 {visit && <span>起始 {visit.startingKidzos}</span>}
                 {twd > 0 && <span>自費新臺幣 {formatNtd(twd)}</span>}
               </div>
+              {visit && <TicketRow visit={visit} onEdit={() => setTicketSheet(true)} />}
             </section>
             <p className="mt-2 px-1 text-[11px] text-ink/45">家庭記帳，和園內實際餘額不一定相同；對不上時用「手動調整」修正。</p>
+
+            <CostOverview key={visit?.id ?? 'all'} visit={visit} onRecordTickets={() => setTicketSheet(true)} />
 
             <h2 className="mt-5 mb-2 text-sm font-bold text-ink/60">流水</h2>
             <LedgerList
@@ -144,7 +151,27 @@ export default function WalletPage() {
 
       <LedgerEntryForm open={formOpen} entry={editing} visitId={visit?.id} onClose={() => setFormOpen(false)} />
       {visit && <VisitSheet open={visitSheet} visit={visit} onClose={() => setVisitSheet(false)} />}
+      {visit && ticketSheet && <TicketSheet key={visit.id} visit={visit} onClose={() => setTicketSheet(false)} />}
     </>
+  );
+}
+
+function TicketRow({ visit, onEdit }: { visit: Visit; onEdit: () => void }) {
+  const t = ticketTotals(visit.tickets);
+  return (
+    <button type="button" onClick={onEdit} className="mt-3 flex w-full items-center justify-between rounded-2xl bg-white/10 px-3 py-2.5 text-left text-sm">
+      <span>
+        <span className="text-white/65">門票　</span>
+        {t ? (
+          <b className="tabular-nums">
+            {t.count} 張・{formatNtd(t.paid)}
+          </b>
+        ) : (
+          <span className="text-white/80">未記錄門票</span>
+        )}
+      </span>
+      <span className="rounded-full bg-white px-2.5 py-1 text-xs font-bold text-ink">{t ? '修改' : '記錄門票'}</span>
+    </button>
   );
 }
 

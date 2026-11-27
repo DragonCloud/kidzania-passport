@@ -15,6 +15,10 @@ import { useBlobUrl } from '../hooks/useBlobUrl';
 import { useChild } from '../hooks/useChild';
 import { useSetting } from '../hooks/useSetting';
 import { useVisits } from '../hooks/useVisits';
+import { usePassport } from '../hooks/usePassport';
+import { applyJobPerk, isPassportValidOn, levelOn, perkNote } from '../lib/passport';
+import { LevelChip } from '../components/passport/LevelChip';
+import type { PassportLevel } from '../types/models';
 import { addCompletion, deleteCompletion, updateCompletion, type PhotoPair } from '../lib/completions';
 import { eligibility } from '../lib/age';
 import { formatAgeReq, formatFloor, formatISODate, formatKidzos, formatNtd, fromLocalInput, localDateISO, toLocalInput } from '../lib/format';
@@ -113,7 +117,12 @@ function StampForm({ job, editing }: { job: Job; editing: Completion | null }) {
       [visitChoice],
     ) ?? ([] as LedgerEntry[]);
   const balance = visitChoice === 'none' ? null : visitChoice === 'new' ? STARTING_KIDZOS : sumKidzos(visitEntries);
-  const delta = job.kidzoDelta ?? 0;
+  const pass = usePassport();
+  const [perkOn, setPerkOn] = useState(true);
+  const perkLevel: PassportLevel | null =
+    date && pass.passport && isPassportValidOn(pass.passport, pass.birthday, date) ? levelOn(pass.passport, date) : null;
+  const perkActive = !!perkLevel && perkOn && job.kidzoDelta !== null && job.kidzoDelta !== 0;
+  const delta = perkActive ? applyJobPerk(job.kidzoDelta!, perkLevel!).amount : (job.kidzoDelta ?? 0);
   const insufficient = delta < 0 && balance !== null && balance + delta < 0;
   const charge = chargeChoice === 'auto' ? !insufficient : chargeChoice === 'charge';
 
@@ -145,6 +154,7 @@ function StampForm({ job, editing }: { job: Job; editing: Completion | null }) {
         note,
         chargeKidzos: charge,
         recordTwd,
+        applyPassportPerk: perkOn,
       });
       void requestPersistence();
       const k = entries.find((e) => e.currency === 'kidZos');
@@ -266,6 +276,8 @@ function StampForm({ job, editing }: { job: Job; editing: Completion | null }) {
               setCharge={(v) => setChargeChoice(v ? 'charge' : 'skip')}
               recordTwd={recordTwd}
               setRecordTwd={setRecordTwd}
+              perk={perkLevel && job.kidzoDelta ? { level: perkLevel, on: perkOn, setOn: setPerkOn } : null}
+              noPassportHint={!pass.passport && pass.loaded && job.kidzoDelta !== null && job.kidzoDelta !== 0}
             />
           </Field>
         )}
@@ -348,6 +360,8 @@ function EconomyBox({
   setCharge,
   recordTwd,
   setRecordTwd,
+  perk,
+  noPassportHint,
 }: {
   job: Job;
   balance: number | null;
@@ -356,8 +370,12 @@ function EconomyBox({
   setCharge: (v: boolean) => void;
   recordTwd: boolean;
   setRecordTwd: (v: boolean) => void;
+  perk: { level: PassportLevel; on: boolean; setOn: (v: boolean) => void } | null;
+  noPassportHint: boolean;
 }) {
-  const d = job.kidzoDelta;
+  const base = job.kidzoDelta;
+  const applied = perk && perk.on && base ? applyJobPerk(base, perk.level) : null;
+  const d = applied ? applied.amount : base;
   return (
     <div className="rounded-2xl bg-white p-3 ring-1 ring-ink/5">
       {d !== null && d > 0 && (
@@ -390,6 +408,37 @@ function EconomyBox({
           記一筆自費 <b className="text-twd">{formatNtd(job.ntdFee)}</b>
           <span className="text-ink/55">（另計，不影響 kidZos）</span>
         </Check>
+      )}
+      {perk && base !== null && base !== 0 && (
+        <div className="mt-2 flex items-center justify-between gap-3 border-t border-ink/5 pt-2.5">
+          <span className="min-w-0">
+            <span className="flex items-center gap-1.5 text-sm font-bold">
+              套用護照加碼 <LevelChip level={perk.level} small />
+            </span>
+            <span className="block text-xs text-ink/55">
+              {perk.on
+                ? `${perkNote(perk.level, base > 0 ? 'wage' : 'experience', applyJobPerk(base, perk.level).bonus)}（表定 ${formatKidzos(base)}）`
+                : `表定 ${formatKidzos(base)}；${base > 0 ? '非指定職業' : '現場沒有減免'}時關閉`}
+            </span>
+          </span>
+          <span className="relative inline-flex h-7 w-12 shrink-0">
+            <input
+              type="checkbox"
+              role="switch"
+              aria-label="套用護照加碼"
+              checked={perk.on}
+              onChange={(e) => perk.setOn(e.target.checked)}
+              className="peer sr-only"
+            />
+            <span className="absolute inset-0 rounded-full bg-ink/20 transition peer-checked:bg-brand" />
+            <span className="pointer-events-none absolute top-0.5 left-0.5 h-6 w-6 rounded-full bg-white shadow transition peer-checked:translate-x-5" />
+          </span>
+        </div>
+      )}
+      {noPassportHint && (
+        <p className="mt-2 border-t border-ink/5 pt-2 text-xs text-ink/50">
+          有 B·KidZanian 市民護照？到 <Link to="/settings" className="font-bold text-brand underline">設定</Link> 記錄後，蓋章會自動加碼。
+        </p>
       )}
       {d === null && job.ntdFee === null && <p className="text-sm text-ink/55">官方未列收支。若現場有收付，之後可到錢包手動記帳。</p>}
     </div>

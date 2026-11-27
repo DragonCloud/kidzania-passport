@@ -1,5 +1,6 @@
 import { db, newId, type AppDB } from '../db/db';
-import type { Currency, Job, LedgerEntry, LedgerType } from '../types/models';
+import type { Currency, Job, LedgerEntry, LedgerType, PassportLevel, TwdCategory } from '../types/models';
+import { applyJobPerk, perkNote } from './passport';
 
 export const LEDGER_TYPE_LABEL: Record<LedgerType, string> = {
   grant: '入園起始資金',
@@ -35,23 +36,35 @@ export function sumTwdSpent(entries: LedgerEntry[]): number {
 export function autoEntriesForJob(
   job: Pick<Job, 'id' | 'nameZh' | 'kidzoDelta' | 'ntdFee'>,
   ctx: { completionId: string; visitId?: string; at: number },
-  opts: { chargeKidzos?: boolean; recordTwd?: boolean } = {},
+  opts: { chargeKidzos?: boolean; recordTwd?: boolean; perkLevel?: PassportLevel | null } = {},
 ): LedgerEntry[] {
-  const { chargeKidzos = true, recordTwd = true } = opts;
+  const { chargeKidzos = true, recordTwd = true, perkLevel = null } = opts;
   const base = { visitId: ctx.visitId, at: ctx.at, jobId: job.id, completionId: ctx.completionId };
   const out: LedgerEntry[] = [];
   if (chargeKidzos && job.kidzoDelta !== null && job.kidzoDelta !== 0) {
+    const earn = job.kidzoDelta > 0;
+    const perk = perkLevel ? applyJobPerk(job.kidzoDelta, perkLevel) : null;
+    const bonus = perk?.bonus ?? 0;
     out.push({
       ...base,
       id: newId(),
-      type: job.kidzoDelta > 0 ? 'earn' : 'spend',
-      amount: job.kidzoDelta,
+      type: earn ? 'earn' : 'spend',
+      amount: perk ? perk.amount : job.kidzoDelta,
       currency: 'kidZos',
-      note: job.nameZh,
+      note: bonus && perkLevel ? `${job.nameZh}（${perkNote(perkLevel, earn ? 'wage' : 'experience', bonus)}）` : job.nameZh,
+      ...(bonus ? { passportBonus: bonus } : {}),
     });
   }
   if (recordTwd && job.ntdFee !== null && job.ntdFee !== 0) {
-    out.push({ ...base, id: newId(), type: 'twd_fee', amount: -Math.abs(job.ntdFee), currency: 'TWD', note: job.nameZh });
+    out.push({
+      ...base,
+      id: newId(),
+      type: 'twd_fee',
+      amount: -Math.abs(job.ntdFee),
+      currency: 'TWD',
+      note: job.nameZh,
+      twdCategory: 'job',
+    });
   }
   return out;
 }
@@ -72,6 +85,10 @@ export interface ManualEntryInput {
   currency?: Currency;
   note?: string;
   at?: number;
+  /** twd_fee 的分類 */
+  twdCategory?: TwdCategory;
+  /** 購物中心等套用護照減免的 kidZos（正數） */
+  passportBonus?: number;
 }
 
 export async function addManualEntry(input: ManualEntryInput, d: AppDB = db): Promise<LedgerEntry> {
@@ -85,6 +102,8 @@ export async function addManualEntry(input: ManualEntryInput, d: AppDB = db): Pr
     amount: input.amount,
     currency,
     note: input.note?.trim() || undefined,
+    ...(currency === 'TWD' && input.twdCategory ? { twdCategory: input.twdCategory } : {}),
+    ...(currency === 'kidZos' && input.passportBonus ? { passportBonus: input.passportBonus } : {}),
   };
   await d.ledger.add(entry);
   return entry;
@@ -92,7 +111,7 @@ export async function addManualEntry(input: ManualEntryInput, d: AppDB = db): Pr
 
 export async function updateEntry(
   id: string,
-  patch: Partial<Pick<LedgerEntry, 'amount' | 'note' | 'at' | 'type' | 'visitId'>>,
+  patch: Partial<Pick<LedgerEntry, 'amount' | 'note' | 'at' | 'type' | 'visitId' | 'twdCategory' | 'passportBonus'>>,
   d: AppDB = db,
 ): Promise<void> {
   if (patch.amount !== undefined && (!Number.isFinite(patch.amount) || patch.amount === 0)) {

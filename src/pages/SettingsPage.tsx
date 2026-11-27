@@ -8,6 +8,8 @@ import { BottomSheet } from '../components/BottomSheet';
 import { ChildSetupCard } from '../components/ChildSetupCard';
 import { FamilySyncSection, SignOutDialog } from '../components/sync/FamilySyncSection';
 import { TrashSection } from '../components/sync/TrashSection';
+import { PassportSettings } from '../components/passport/PassportSettings';
+import { TicketPriceSettings } from '../components/passport/TicketPriceSettings';
 import { useSyncAccount } from '../sync/SyncProvider';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { IconAlert, IconExternal } from '../components/icons';
@@ -183,6 +185,16 @@ export default function SettingsPage() {
             <ChildSetupCard key={`${child.name}|${child.birthday}`} child={child} compact onSaved={() => setToast('已儲存')} />
           </>
         )}
+      </Card>
+
+      <Card title="市民護照">
+        <div id="passport">
+          <PassportSettings onMessage={setToast} />
+        </div>
+      </Card>
+
+      <Card title="門票價格">
+        <TicketPriceSettings onMessage={setToast} />
       </Card>
 
       <Card title="家庭同步">

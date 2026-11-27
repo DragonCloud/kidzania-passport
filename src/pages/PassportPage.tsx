@@ -1,7 +1,11 @@
+import { useLiveQuery } from 'dexie-react-hooks';
 import { useMemo, useState } from 'react';
+import { db } from '../db/db';
+import { summarizeCosts } from '../lib/costs';
 import { Link } from 'react-router-dom';
 import { EmptyStamp, Stamp, stampTilt } from '../components/Stamp';
 import { PhotoViewer } from '../components/PhotoViewer';
+import { StampProgressCard } from '../components/passport/StampProgressCard';
 import { useBlobUrl } from '../hooks/useBlobUrl';
 import { useChild } from '../hooks/useChild';
 import { useCompletions } from '../hooks/useCompletions';
@@ -32,7 +36,8 @@ export default function PassportPage() {
 
   const walletVisit = visits.find((v) => v.visitDate === today) ?? visits[0];
   const { kidzos } = useLedger(walletVisit?.id ?? '__none__');
-  const { twdSpent: twdAll } = useLedger();
+  const costAll = useLiveQuery(async () => summarizeCosts(await db.visits.toArray(), await db.ledger.toArray(), 'all'), []);
+  const twdAll = costAll?.twd.total ?? 0;
 
   const albums = useMemo(() => {
     const groups = new Map<string, Completion[]>();
@@ -72,6 +77,8 @@ export default function PassportPage() {
         ))}
       </section>
 
+      <StampProgressCard />
+
       <Link to="/passport/wallet" className="mt-3 flex items-center justify-between rounded-3xl bg-ink p-4 text-white shadow-md">
         <div>
           <p className="text-xs text-white/65">
@@ -81,7 +88,7 @@ export default function PassportPage() {
             {walletVisit ? kidzos : '—'}
             <span className="ml-1 text-sm font-bold text-white/70">kidZos</span>
           </p>
-          {twdAll > 0 && <p className="mt-0.5 text-xs text-white/60">累計自費 {formatNtd(twdAll)}</p>}
+          {twdAll > 0 && <p className="mt-0.5 text-xs text-white/60">累計花費 {formatNtd(twdAll)}{costAll?.ticketsUnrecorded ? '（部分門票未記錄）' : ''}</p>}
         </div>
         <span className="rounded-full bg-white/15 px-3 py-1.5 text-sm font-bold">錢包 ›</span>
       </Link>

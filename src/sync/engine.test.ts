@@ -8,6 +8,7 @@ import { saveOfficialMap } from '../lib/officialMap';
 import { setSetting } from '../lib/settings';
 import { restoreTrashLocal } from '../lib/trash';
 import { createVisit } from '../lib/visits';
+import { recordUpgrade, savePassport, saveTicketPrices, saveVisitTickets } from '../lib/passportStore';
 import { clearSyncedLocalData, getSyncState, loadSyncFamily, localDataCount, PAUSE_AFTER_MS, SyncEngine, type EngineOptions } from './engine';
 import { syncRuntime } from './hooks';
 import { MemoryRemoteStore } from './testing/memoryRemote';
@@ -229,6 +230,35 @@ describe('兩支手機互相同步', () => {
     await settle();
     await eA.syncNow();
     await vi.waitFor(async () => expect(await B.completions.count()).toBe(1));
+  });
+});
+
+describe('v0.3.0 新欄位同步', () => {
+  it('護照、門票價格表、入園門票、twdCategory、passportBonus 在兩支手機間往返不遺失', async () => {
+    const { A, B, eA, eB } = await twoDevices();
+    await saveChild({ name: '小明', birthday: '2020-03-15' }, A);
+    const p = await savePassport({ issuedOn: '2026-01-10' }, A);
+    await saveTicketPrices({ adult: 650 }, '2026-12-01', A);
+    const v = await createVisit({ visitDate: '2026-11-28' }, A);
+    await saveVisitTickets(v.id, [{ type: 'custom', label: '團體票', qty: 3, listPrice: 1400, paidPrice: 1200, note: '幼兒園' }], A);
+    const { entries } = await addCompletion({ jobId: 'job-vet', visitId: v.id, completedAt: new Date(2026, 10, 28, 10).getTime(), applyPassportPerk: true }, A);
+    await settle();
+    await eA.syncNow();
+    await eB.syncNow();
+
+    const child = await B.child.get('kid');
+    expect(child!.passport).toEqual(p);
+    expect(child!.ticketPrices!.prices.adult).toBe(650);
+    expect((await B.visits.get(v.id))!.tickets).toEqual([{ type: 'custom', label: '團體票', qty: 3, listPrice: 1400, paidPrice: 1200, note: '幼兒園' }]);
+    expect(await B.ledger.get(p.feeEntryId!)).toMatchObject({ twdCategory: 'passport', amount: -399 });
+    expect(await B.ledger.get(entries[0]!.id)).toMatchObject({ amount: 12, passportBonus: 2 });
+
+    // B 升級、A 收到
+    await recordUpgrade('2026-12-05', B);
+    await settle();
+    await eB.syncNow();
+    await eA.syncNow();
+    expect((await A.child.get('kid'))!.passport!.upgrades).toEqual([{ level: 'outstanding', date: '2026-12-05' }]);
   });
 });
 
