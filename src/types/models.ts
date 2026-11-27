@@ -66,6 +66,8 @@ export interface ChildProfile {
   avatarBlobId?: string;
   /** v0.3.0：B·KidZanian 市民護照（選填；舊資料沒有） */
   passport?: CitizenPassport | null;
+  /** v0.3.1：已刪除過的護照費帳 id（雲端「刪除優先」不能復活同 id，再建立時改用新 id） */
+  retiredPassportEntryIds?: string[];
   /** v0.3.0：門票價格預設（選填；沒有時用官方預設） */
   ticketPrices?: TicketPriceTable;
 }
@@ -76,16 +78,18 @@ export interface ChildProfile {
 export type PassportLevel = 'model' | 'outstanding' | 'honor';
 
 export interface CitizenPassport {
-  /** 辦理日 'YYYY-MM-DD'（當天出示護照即開始有權益） */
+  /** 辦理日 'YYYY-MM-DD'（保留給舊版 App／舊資料讀取；與 issuedAt 的當地日期一致） */
   issuedOn: string;
+  /** v0.3.1：辦理時間（epoch ms）。這個時間之後蓋的章才算護照章、才套用權益。舊資料沒有時視為辦理日 00:00 */
+  issuedAt?: number;
   /** 辦理費（新臺幣） */
   fee: number;
   /** 對應的台幣支出帳（twd_fee／passport） */
   feeEntryId?: string;
   /** 升級紀錄（到現場換發後手動記錄），依日期排序 */
-  upgrades: { level: Exclude<PassportLevel, 'model'>; date: string }[];
+  upgrades: { level: Exclude<PassportLevel, 'model'>; date: string; /** v0.3.1：換發時間（epoch ms）；舊資料只有日期時視為當天 00:00 */ at?: number }[];
   /** 遺失補發：等級保留、舊章不轉移 */
-  replacements: { date: string; fee: number; entryId?: string }[];
+  replacements: { date: string; fee: number; entryId?: string; /** v0.3.1：補發時間（epoch ms） */ at?: number }[];
 }
 
 export type TicketTypeId = 'child' | 'adult' | 'senior' | 'careChild' | 'careAdult' | 'infant';
@@ -132,6 +136,10 @@ export interface Completion {
   photoBlobId?: string;
   thumbBlobId?: string;
   note?: string;
+  /** v0.3.1：蓋章時是否選「套用護照加碼」。舊資料沒有時：帳上有 passportBonus 視為有選 */
+  passportPerk?: boolean;
+  /** v0.3.1：手動指定算（true）／不算（false）護照集章；沒有時依時間自動判斷 */
+  countsForPassport?: boolean;
 }
 
 export type LedgerType =

@@ -5,7 +5,7 @@ import { jobById } from '../lib/jobs';
 import type { LedgerEntry, LedgerType, TwdCategory } from '../types/models';
 import { BottomSheet } from './BottomSheet';
 import { usePassport } from '../hooks/usePassport';
-import { TWD_CATEGORY_LABEL, twdCategoryOf } from '../lib/costs';
+import { MANUAL_TWD_CATEGORIES, TWD_CATEGORY_LABEL, twdCategoryOf } from '../lib/costs';
 import { localDateISO } from '../lib/format';
 import { isPassportValidOn, LEVEL_LABEL, levelOn, PERKS } from '../lib/passport';
 
@@ -59,6 +59,8 @@ function Inner({ entry, visitId, onClose }: { entry: LedgerEntry | null; visitId
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [category, setCategory] = useState<TwdCategory>(entry ? twdCategoryOf(entry) : 'other');
+  // 舊版手動記的「門票」「護照費」：照常顯示、可刪，但不再提供這兩個分類
+  const legacyCategory = !!entry && (category === 'ticket' || category === 'passport');
   const [bonus, setBonus] = useState(entry?.passportBonus ?? 0);
   const [items, setItems] = useState(1);
   const pass = usePassport();
@@ -238,25 +240,33 @@ function Inner({ entry, visitId, onClose }: { entry: LedgerEntry | null; visitId
         </div>
       )}
 
-      {currency === 'TWD' && (
-        <>
-          <h3 className="mt-4 mb-2 text-sm font-bold text-ink/70">支出分類</h3>
-          <div className="flex flex-wrap gap-2">
-            {(['ticket', 'job', 'other', 'passport'] as const).map((c) => (
-              <button
-                key={c}
-                type="button"
-                aria-pressed={category === c}
-                onClick={() => setCategory(c)}
-                className={`rounded-full px-3 py-1.5 text-sm font-medium ring-1 ${category === c ? 'bg-ink text-white ring-ink' : 'bg-white ring-ink/15'}`}
-              >
-                {TWD_CATEGORY_LABEL[c]}
-              </button>
-            ))}
-          </div>
-          {category === 'ticket' && <p className="mt-1.5 text-xs text-ink/50">一般門票建議在錢包的「記錄門票」填，可分票種、算省下多少。</p>}
-        </>
-      )}
+      {currency === 'TWD' &&
+        (legacyCategory ? (
+          <p className="mt-4 rounded-xl bg-ink/[0.04] p-3 text-sm text-ink/70">
+            分類：<b>{TWD_CATEGORY_LABEL[category]}</b>
+            <span className="block text-xs text-ink/50">
+              {category === 'ticket' ? '門票請在錢包的「記錄門票」填寫。' : '護照費請在設定頁的「市民護照」管理。'}這筆可以照常修改金額或刪除。
+            </span>
+          </p>
+        ) : (
+          <>
+            <h3 className="mt-4 mb-2 text-sm font-bold text-ink/70">支出分類</h3>
+            <div className="flex flex-wrap gap-2">
+              {MANUAL_TWD_CATEGORIES.map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  aria-pressed={category === c}
+                  onClick={() => setCategory(c)}
+                  className={`rounded-full px-3 py-1.5 text-sm font-medium ring-1 ${category === c ? 'bg-ink text-white ring-ink' : 'bg-white ring-ink/15'}`}
+                >
+                  {TWD_CATEGORY_LABEL[c]}
+                </button>
+              ))}
+            </div>
+            <p className="mt-1.5 text-xs text-ink/50">門票請用錢包的「記錄門票」，護照費在設定頁「市民護照」，避免重複計算。</p>
+          </>
+        ))}
 
       <label className="mt-4 block">
         <span className="text-sm font-bold text-ink/70">時間</span>

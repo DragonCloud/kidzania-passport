@@ -262,6 +262,31 @@ describe('v0.3.0 新欄位同步', () => {
   });
 });
 
+describe('v0.3.1 護照費固定 id', () => {
+  it('兩支手機同時建立護照：同步後兩邊都只有一筆辦理費；重算的加碼帳以同一個 id 同步', async () => {
+    const { remote, A, B, eA, eB } = await twoDevices();
+    const t = new Date(2026, 10, 20, 12).getTime();
+    const { entries } = await addCompletion({ jobId: 'job-vet', completedAt: t + 3_600_000, applyPassportPerk: true }, A);
+    await settle();
+    await eA.syncNow();
+    await eB.syncNow();
+    // 兩邊各自（離線時）建立護照
+    await savePassport({ issuedOn: '2026-11-20', issuedAt: t }, A);
+    await savePassport({ issuedOn: '2026-11-20', issuedAt: t }, B);
+    await settle();
+    await eA.syncNow();
+    await eB.syncNow();
+    await eA.syncNow();
+    for (const d of [A, B]) {
+      const fees = (await d.ledger.toArray()).filter((e) => e.twdCategory === 'passport');
+      expect(fees.map((e) => e.id)).toEqual(['passport-fee']);
+      expect(await d.ledger.get(entries[0]!.id)).toMatchObject({ amount: 12, passportBonus: 2 });
+      expect(await d.ledger.count()).toBe(2);
+    }
+    expect(remote.calls.length).toBeGreaterThan(0);
+  });
+});
+
 describe('刪除與還原', () => {
   it('軟刪除會套用到另一支手機，並出現在「最近刪除」（含照片與帳）', async () => {
     const { remote, A, B, eA, eB } = await twoDevices();

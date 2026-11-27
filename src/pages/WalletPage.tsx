@@ -15,7 +15,7 @@ import { useToday } from '../hooks/useToday';
 import { useVisits } from '../hooks/useVisits';
 import { formatISODate, formatNtd } from '../lib/format';
 import { sumKidzos, sumTwdSpent } from '../lib/ledger';
-import { createVisit, deleteVisit, previousVisitBalance, updateVisit } from '../lib/visits';
+import { createVisit, deleteVisit, pickCurrentVisit, previousVisitBalance, updateVisit } from '../lib/visits';
 import type { LedgerEntry, Visit } from '../types/models';
 
 const NO_VISIT = 'none';
@@ -34,7 +34,9 @@ export default function WalletPage() {
 
   const requested = params.get('visit');
   const selected: string | null =
-    requested && (requested === NO_VISIT || visits.some((v) => v.id === requested)) ? requested : (visits[0]?.id ?? (orphanCount ? NO_VISIT : null));
+    requested && (requested === NO_VISIT || visits.some((v) => v.id === requested))
+      ? requested
+      : (pickCurrentVisit(visits, today)?.id ?? (orphanCount ? NO_VISIT : null));
   const visit = visits.find((v) => v.id === selected);
   const select = (id: string) => setParams({ visit: id }, { replace: true });
 

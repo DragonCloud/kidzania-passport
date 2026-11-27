@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { usePassport } from '../../hooks/usePassport';
-import { formatISODate, formatNtd } from '../../lib/format';
+import { formatISODate, formatNtd, localDateISO } from '../../lib/format';
 import {
+  localMidnight,
   discountLabel,
   LEVEL_LABEL,
   NEXT_LEVEL,
@@ -16,6 +17,8 @@ import { BottomSheet } from '../BottomSheet';
 import { ConfirmDialog } from '../ConfirmDialog';
 import { IconAlert } from '../icons';
 import { LevelChip } from './LevelChip';
+import { PassportFixBanner, useDateTime } from './PassportFix';
+import { formatDateTime } from '../../lib/format';
 
 export const inputCls =
   'w-full rounded-xl bg-white px-3 py-2.5 text-base ring-1 ring-ink/15 outline-none focus:ring-2 focus:ring-brand';
@@ -52,10 +55,10 @@ export function PassportSettings({ onMessage }: { onMessage: (m: string) => void
           <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-sm">
             <dt className="text-ink/55">辦理日</dt>
             <dd>
-              {formatISODate(p.issuedOn)}・{p.fee > 0 ? formatNtd(p.fee) : '免費'}
+              {p.issuedAt !== undefined ? formatDateTime(p.issuedAt) : formatISODate(p.issuedOn)}・{p.fee > 0 ? formatNtd(p.fee) : '免費'}
             </dd>
             {p.upgrades.map((u) => (
-              <FragmentRow key={u.level} label={`升${LEVEL_LABEL[u.level]}`} value={formatISODate(u.date)} />
+              <FragmentRow key={u.level} label={`升${LEVEL_LABEL[u.level]}`} value={u.at !== undefined ? formatDateTime(u.at) : formatISODate(u.date)} />
             ))}
             {p.replacements.map((r, i) => (
               <FragmentRow
@@ -83,6 +86,7 @@ export function PassportSettings({ onMessage }: { onMessage: (m: string) => void
               )}
             </dd>
           </dl>
+          <PassportFixBanner onMessage={onMessage} />
           {s.expiry.state === 'expired' && (
             <p className="mt-2 flex items-start gap-1.5 rounded-xl bg-amber-50 p-2.5 text-sm text-amber-900 ring-1 ring-amber-200">
               <IconAlert className="mt-0.5 h-4 w-4 shrink-0" />
@@ -130,8 +134,8 @@ export function PassportSettings({ onMessage }: { onMessage: (m: string) => void
           hint={`到 KidZania 現場用集滿 30 枚章的護照換發後再記錄。換發當天起套用${LEVEL_LABEL[NEXT_LEVEL[s.level]!]}權益，集章重新計算。`}
           today={s.today}
           onClose={() => setUpgrade(false)}
-          onSave={async (date) => {
-            await recordUpgrade(date);
+          onSave={async (at) => {
+            await recordUpgrade(localDateISO(at), undefined, at);
             onMessage(`已升為${LEVEL_LABEL[NEXT_LEVEL[s.level!]!]}`);
           }}
         />
@@ -143,8 +147,8 @@ export function PassportSettings({ onMessage }: { onMessage: (m: string) => void
           today={s.today}
           withFee={REPLACEMENT_FEE}
           onClose={() => setReplace(false)}
-          onSave={async (date, fee) => {
-            await addReplacement({ date, fee });
+          onSave={async (at, fee) => {
+            await addReplacement({ date: localDateISO(at), fee, at });
             onMessage('已記錄補發');
           }}
         />
@@ -163,7 +167,7 @@ export function PassportSettings({ onMessage }: { onMessage: (m: string) => void
           })
         }
       >
-        <p>辦理費與補發費那幾筆支出也會一起刪除。已蓋章的加碼帳目不會改變。</p>
+        <p>辦理費與補發費那幾筆支出也會一起刪除；蓋章時的護照加碼會改回表定值。</p>
       </ConfirmDialog>
     </>
   );
@@ -221,10 +225,10 @@ function PerkTable({ current }: { current: PassportLevel | null }) {
 function EditSheet({ onClose, onSaved, onRemove }: { onClose: () => void; onSaved: () => void; onRemove?: () => void }) {
   const s = usePassport();
   const p = s.passport;
-  const [issuedOn, setIssuedOn] = useState(p?.issuedOn ?? s.today);
+  const issued = useDateTime(p ? (p.issuedAt ?? localMidnight(p.issuedOn)) : null);
   const [fee, setFee] = useState(String(p?.fee ?? PASSPORT_FEE));
   const [level, setLevel] = useState<PassportLevel>('model');
-  const [levelSince, setLevelSince] = useState(s.today);
+  const since = useDateTime(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -233,7 +237,18 @@ function EditSheet({ onClose, onSaved, onRemove }: { onClose: () => void; onSave
     if (!Number.isInteger(n) || n < 0) return setError('費用需為 0 以上的整數');
     setBusy(true);
     try {
-      await savePassport({ issuedOn, fee: n, ...(p ? {} : { level, levelSince }) });
+      // 舊護照（沒有辦理時間）沒改時間時保持原樣，交給「一鍵修正」處理
+      const keepLegacy = !!p && p.issuedAt === undefined && !issued.touched;
+      const issuedAt = keepLegacy ? undefined : issued.resolve();
+      if (issuedAt === null) throw new Error('請選辦理時間');
+      const sinceAt = since.resolve();
+      if (!p && level !== 'model' && sinceAt === null) throw new Error('請選換發時間');
+      await savePassport({
+        issuedOn: issuedAt === undefined ? p!.issuedOn : localDateISO(issuedAt),
+        issuedAt,
+        fee: n,
+        ...(p || level === 'model' ? {} : { level, levelSinceAt: sinceAt! }),
+      });
       onSaved();
       onClose();
     } catch (e) {
@@ -261,9 +276,9 @@ function EditSheet({ onClose, onSaved, onRemove }: { onClose: () => void; onSave
       }
     >
       <label className="mt-3 block">
-        <span className="text-sm font-bold text-ink/70">辦理日期</span>
-        <input type="date" value={issuedOn} max={s.today} onChange={(e) => setIssuedOn(e.target.value)} className={`${inputCls} mt-1`} />
-        <span className="mt-1 block text-xs text-ink/50">辦好當天起就有權益。</span>
+        <span className="text-sm font-bold text-ink/70">辦理時間</span>
+        <input type="datetime-local" value={issued.value} onChange={(e) => issued.setValue(e.target.value)} className={`${inputCls} mt-1`} />
+        <span className="mt-1 block text-xs text-ink/50">預設是現在。這個時間之後蓋的章才算護照章、才有加碼；之前的章仍留在印章牆，標「辦護照前」。</span>
       </label>
       <label className="mt-4 block">
         <span className="text-sm font-bold text-ink/70">辦理費（新臺幣）</span>
@@ -288,8 +303,8 @@ function EditSheet({ onClose, onSaved, onRemove }: { onClose: () => void; onSave
           </div>
           {level !== 'model' && (
             <label className="mt-3 block">
-              <span className="text-sm font-bold text-ink/70">升為{LEVEL_LABEL[level]}的日期</span>
-              <input type="date" value={levelSince} min={issuedOn} max={s.today} onChange={(e) => setLevelSince(e.target.value)} className={`${inputCls} mt-1`} />
+              <span className="text-sm font-bold text-ink/70">升為{LEVEL_LABEL[level]}的時間</span>
+              <input type="datetime-local" value={since.value} onChange={(e) => since.setValue(e.target.value)} className={`${inputCls} mt-1`} />
               <span className="mt-1 block text-xs text-ink/50">這天起套用{LEVEL_LABEL[level]}權益，集章從這天重新計算。</span>
             </label>
           )}
@@ -313,14 +328,17 @@ export function DateSheet({
   today: string;
   withFee?: number;
   onClose: () => void;
-  onSave: (date: string, fee: number) => Promise<void>;
+  onSave: (at: number, fee: number) => Promise<void>;
 }) {
-  const [date, setDate] = useState(today);
+  void today;
+  const dt = useDateTime(null);
   const [fee, setFee] = useState(String(withFee ?? 0));
   const [error, setError] = useState<string | null>(null);
   async function save() {
     try {
-      await onSave(date, Number(fee));
+      const at = dt.resolve();
+      if (at === null) return setError('請選時間');
+      await onSave(at, Number(fee));
       onClose();
     } catch (e) {
       setError(e instanceof Error ? e.message : '儲存失敗');
@@ -339,8 +357,8 @@ export function DateSheet({
     >
       <p className="mt-2 text-sm text-ink/65">{hint}</p>
       <label className="mt-3 block">
-        <span className="text-sm font-bold text-ink/70">日期</span>
-        <input type="date" value={date} max={today} onChange={(e) => setDate(e.target.value)} className={`${inputCls} mt-1`} />
+        <span className="text-sm font-bold text-ink/70">時間</span>
+        <input type="datetime-local" value={dt.value} onChange={(e) => dt.setValue(e.target.value)} className={`${inputCls} mt-1`} />
       </label>
       {withFee !== undefined && (
         <label className="mt-3 block">

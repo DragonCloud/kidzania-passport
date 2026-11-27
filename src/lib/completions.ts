@@ -2,8 +2,8 @@ import { db, newId, type AppDB } from '../db/db';
 import type { Completion, LedgerEntry, StoredBlob, TrashEntry } from '../types/models';
 import { jobById } from './jobs';
 import { autoEntriesForJob, sumKidzos } from './ledger';
-import { isPassportValidOn, levelOn } from './passport';
-import { localDateISO } from './format';
+import { isPassportValidAt, levelAt } from './passport';
+import { recalcPassportEntries } from './passportRecalc';
 
 export interface PhotoPair {
   full: Blob;
@@ -50,9 +50,8 @@ function photoBlobs(photo: PhotoPair): { full: StoredBlob; thumb: StoredBlob } {
 /** 某個時間點有效的護照等級（無護照、未辦理或已過期 → null） */
 export async function passportLevelAt(at: number, d: AppDB = db) {
   const child = await d.child.get('kid');
-  const day = localDateISO(at);
-  if (!child?.passport || !isPassportValidOn(child.passport, child.birthday, day)) return null;
-  return levelOn(child.passport, day);
+  if (!child?.passport || !isPassportValidAt(child.passport, child.birthday, at)) return null;
+  return levelAt(child.passport, at);
 }
 
 export async function addCompletion(
@@ -68,6 +67,7 @@ export async function addCompletion(
     visitId: input.visitId,
     completedAt: at,
     note: input.note?.trim() || undefined,
+    passportPerk: !!input.applyPassportPerk,
   };
   const perkLevel = input.applyPassportPerk ? await passportLevelAt(at, d) : null;
   const entries = autoEntriesForJob(
@@ -95,17 +95,21 @@ export interface UpdateCompletionPatch {
   note?: string;
   /** PhotoPair＝換照片；null＝移除照片；undefined＝不變 */
   photo?: PhotoPair | null;
+  /** 手動指定算／不算護照章；null＝改回自動判斷 */
+  countsForPassport?: boolean | null;
 }
 
 /** 修改完成紀錄；時間與入園關聯會同步到它自動產生的帳 */
 export async function updateCompletion(id: string, patch: UpdateCompletionPatch, d: AppDB = db): Promise<void> {
-  await d.transaction('rw', [d.completions, d.ledger, d.blobs, d.outbox], async () => {
+  await d.transaction('rw', [d.completions, d.ledger, d.blobs, d.outbox, d.child], async () => {
     const c = await d.completions.get(id);
     if (!c) throw new Error('找不到這筆完成紀錄');
     const next: Completion = { ...c };
     if (patch.completedAt !== undefined) next.completedAt = patch.completedAt;
     if (patch.visitId !== undefined) next.visitId = patch.visitId ?? undefined;
     if (patch.note !== undefined) next.note = patch.note.trim() || undefined;
+    if (patch.countsForPassport === null) delete next.countsForPassport;
+    else if (patch.countsForPassport !== undefined) next.countsForPassport = patch.countsForPassport;
     if (patch.photo !== undefined) {
       const old = [c.photoBlobId, c.thumbBlobId].filter((x): x is string => !!x);
       if (old.length) await d.blobs.bulkDelete(old);
@@ -123,6 +127,8 @@ export async function updateCompletion(id: string, patch: UpdateCompletionPatch,
       const linked = await d.ledger.where('completionId').equals(id).toArray();
       for (const e of linked) await d.ledger.put({ ...e, at: next.completedAt, visitId: next.visitId });
     }
+    // 改時間可能跨過辦理／升級時間 → 依新時間重算加碼（同一個 id）
+    if (patch.completedAt !== undefined && patch.completedAt !== c.completedAt) await recalcPassportEntries(d, [id]);
   });
 }
 

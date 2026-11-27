@@ -18,18 +18,15 @@ export interface PassportState {
   /** 護照上記錄的目前等級（不論是否過期） */
   level: PassportLevel | null;
   progress: StampProgress | null;
+  /** 舊護照沒有辦理時間（v0.3.0 建立）：需要一鍵修正 */
+  needsIssuedAt: boolean;
 }
 
 export function usePassport(): PassportState {
   const { loaded, child } = useChild();
   const today = useToday();
   const passport = child.passport ?? null;
-  const since = passport ? passport.issuedOn : null;
-  const completions = useLiveQuery(
-    () => (since ? db.completions.where('completedAt').aboveOrEqual(new Date(`${since}T00:00:00`).getTime() - 86_400_000).toArray() : []),
-    [since],
-    [],
-  );
+  const completions = useLiveQuery(() => (passport ? db.completions.toArray() : []), [!!passport], []);
   const validToday = isPassportValidOn(passport, child.birthday, today);
   return {
     loaded,
@@ -41,5 +38,6 @@ export function usePassport(): PassportState {
     levelToday: validToday ? levelOn(passport, today) : null,
     level: passport ? currentLevel(passport) : null,
     progress: passport ? stampProgress(passport, completions, child.birthday) : null,
+    needsIssuedAt: !!passport && passport.issuedAt === undefined,
   };
 }

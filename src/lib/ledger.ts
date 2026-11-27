@@ -1,6 +1,6 @@
 import { db, newId, type AppDB } from '../db/db';
 import type { Currency, Job, LedgerEntry, LedgerType, PassportLevel, TwdCategory } from '../types/models';
-import { applyJobPerk, perkNote } from './passport';
+import { applyJobPerk, autoKidzosNote } from './passport';
 
 export const LEDGER_TYPE_LABEL: Record<LedgerType, string> = {
   grant: '入園起始資金',
@@ -51,7 +51,7 @@ export function autoEntriesForJob(
       type: earn ? 'earn' : 'spend',
       amount: perk ? perk.amount : job.kidzoDelta,
       currency: 'kidZos',
-      note: bonus && perkLevel ? `${job.nameZh}（${perkNote(perkLevel, earn ? 'wage' : 'experience', bonus)}）` : job.nameZh,
+      note: autoKidzosNote(job.nameZh, perkLevel, job.kidzoDelta, bonus),
       ...(bonus ? { passportBonus: bonus } : {}),
     });
   }

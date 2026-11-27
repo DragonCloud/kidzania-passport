@@ -16,7 +16,7 @@ import { useChild } from '../hooks/useChild';
 import { useSetting } from '../hooks/useSetting';
 import { useVisits } from '../hooks/useVisits';
 import { usePassport } from '../hooks/usePassport';
-import { applyJobPerk, isPassportValidOn, levelOn, perkNote } from '../lib/passport';
+import { applyJobPerk, countsTowardPassport, isPassportValidAt, levelAt, perkNote } from '../lib/passport';
 import { LevelChip } from '../components/passport/LevelChip';
 import type { PassportLevel } from '../types/models';
 import { addCompletion, deleteCompletion, updateCompletion, type PhotoPair } from '../lib/completions';
@@ -86,8 +86,13 @@ function StampForm({ job, editing }: { job: Job; editing: Completion | null }) {
     useLiveQuery(async () => (editing ? db.ledger.where('completionId').equals(editing.id).toArray() : []), [editing?.id]) ??
     ([] as LedgerEntry[]);
 
-  const [whenInput, setWhenInput] = useState(() => toLocalInput(editing?.completedAt ?? Date.now()));
-  const at = fromLocalInput(whenInput);
+  // 輸入框只到分鐘；沒改時間時用精確值（新增＝按下蓋章那一刻、編輯＝原本的時間），
+  // 避免秒數被截掉，讓剛辦好護照同一分鐘內蓋的章被誤判成辦理前
+  const [initialWhen] = useState(() => ({ ms: editing?.completedAt ?? Date.now() }));
+  const [whenInput, setWhenInput] = useState(() => toLocalInput(initialWhen.ms));
+  const whenUntouched = whenInput === toLocalInput(initialWhen.ms);
+  const exactAt = (): number | null => (whenUntouched ? (editing ? editing.completedAt : Date.now()) : fromLocalInput(whenInput));
+  const at = exactAt();
   const date = at !== null ? localDateISO(at) : null;
 
   const [visitTouched, setVisitTouched] = useState(false);
@@ -119,8 +124,12 @@ function StampForm({ job, editing }: { job: Job; editing: Completion | null }) {
   const balance = visitChoice === 'none' ? null : visitChoice === 'new' ? STARTING_KIDZOS : sumKidzos(visitEntries);
   const pass = usePassport();
   const [perkOn, setPerkOn] = useState(true);
-  const perkLevel: PassportLevel | null =
-    date && pass.passport && isPassportValidOn(pass.passport, pass.birthday, date) ? levelOn(pass.passport, date) : null;
+  // 依完成「時間」判斷（辦理前的章不加碼）
+  const perkLevel: PassportLevel | null = at !== null && isPassportValidAt(pass.passport, pass.birthday, at) ? levelAt(pass.passport, at) : null;
+  const [countsChoice, setCountsChoice] = useState<'auto' | 'yes' | 'no'>(
+    editing?.countsForPassport === true ? 'yes' : editing?.countsForPassport === false ? 'no' : 'auto',
+  );
+  const autoCounts = at !== null && countsTowardPassport({ completedAt: at }, pass.passport, pass.birthday);
   const perkActive = !!perkLevel && perkOn && job.kidzoDelta !== null && job.kidzoDelta !== 0;
   const delta = perkActive ? applyJobPerk(job.kidzoDelta!, perkLevel!).amount : (job.kidzoDelta ?? 0);
   const insufficient = delta < 0 && balance !== null && balance + delta < 0;
@@ -133,6 +142,7 @@ function StampForm({ job, editing }: { job: Job; editing: Completion | null }) {
   }
 
   async function submit() {
+    const at = exactAt();
     if (at === null) {
       setError('請填寫完成時間');
       return;
@@ -142,7 +152,13 @@ function StampForm({ job, editing }: { job: Job; editing: Completion | null }) {
     try {
       const visitId = await resolveVisitId();
       if (editing) {
-        await updateCompletion(editing.id, { completedAt: at, visitId: visitId ?? null, note, photo });
+        await updateCompletion(editing.id, {
+          completedAt: at,
+          visitId: visitId ?? null,
+          note,
+          photo,
+          countsForPassport: countsChoice === 'auto' ? null : countsChoice === 'yes',
+        });
         navigate(-1);
         return;
       }
@@ -282,7 +298,7 @@ function StampForm({ job, editing }: { job: Job; editing: Completion | null }) {
           </Field>
         )}
         {editing && (
-          <Field label="kidZos／費用" hint="自動記的帳會跟著改時間與入園；金額請到錢包頁修改。">
+          <Field label="kidZos／費用" hint="自動記的帳會跟著改時間與入園；時間跨過辦護照或升級時，加碼會自動重算。金額請到錢包頁修改。">
             {linked.length ? (
               <ul className="rounded-2xl bg-white px-4 py-1 text-sm ring-1 ring-ink/5">
                 {linked.map((e) => (
@@ -294,6 +310,34 @@ function StampForm({ job, editing }: { job: Job; editing: Completion | null }) {
             ) : (
               <p className="rounded-2xl bg-white p-3 text-sm text-ink/55 ring-1 ring-ink/5">這筆紀錄沒有自動記帳。</p>
             )}
+          </Field>
+        )}
+
+        {editing && pass.passport && (
+          <Field
+            label="護照集章"
+            hint={`自動：依完成時間判斷（目前${autoCounts ? '算' : '不算'}）。只影響升級進度，不影響 kidZos 加碼。`}
+          >
+            <div className="flex rounded-2xl bg-ink/[0.06] p-1" role="radiogroup" aria-label="護照集章">
+              {(
+                [
+                  ['auto', '自動'],
+                  ['yes', '算'],
+                  ['no', '不算'],
+                ] as const
+              ).map(([v, label]) => (
+                <button
+                  key={v}
+                  type="button"
+                  role="radio"
+                  aria-checked={countsChoice === v}
+                  onClick={() => setCountsChoice(v)}
+                  className={`flex-1 rounded-xl py-2 text-sm font-bold ${countsChoice === v ? 'bg-white shadow-sm' : 'text-ink/55'}`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
           </Field>
         )}
 

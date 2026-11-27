@@ -75,6 +75,23 @@ export function daysBetween(fromIso: string, toIso: string): number {
   return Math.round((Date.UTC(b.y, b.m - 1, b.d) - Date.UTC(a.y, a.m - 1, a.d)) / 86_400_000);
 }
 
+/** 'YYYY-MM-DD' 的當地 00:00（epoch ms） */
+export function localMidnight(iso: string): number {
+  const p = parse(iso)!;
+  return new Date(p.y, p.m - 1, p.d).getTime();
+}
+
+/** 辦理時間：有 issuedAt 用 issuedAt；舊資料只有日期 → 當天 00:00 */
+export function issuedAtOf(p: CitizenPassport): number {
+  return p.issuedAt ?? localMidnight(p.issuedOn);
+}
+export function upgradeAtOf(u: CitizenPassport['upgrades'][number]): number {
+  return u.at ?? localMidnight(u.date);
+}
+export function replacementAtOf(r: CitizenPassport['replacements'][number]): number {
+  return r.at ?? localMidnight(r.date);
+}
+
 // ───────── 效期 ─────────
 
 /**
@@ -103,6 +120,13 @@ export function isPassportValidOn(p: CitizenPassport | null | undefined, birthda
   return exp === null ? true : date <= exp;
 }
 
+/** 某個時間點護照是否有效：辦理時間之後（含），到 18 歲生日前一天 */
+export function isPassportValidAt(p: CitizenPassport | null | undefined, birthday: string | null, at: number): boolean {
+  if (!p || at < issuedAtOf(p)) return false;
+  const exp = passportExpiry(birthday);
+  return exp === null ? true : localDateISO(at) <= exp;
+}
+
 export type ExpiryState = 'ok' | 'soon' | 'expired' | 'unknown';
 
 export function expiryStatus(birthday: string | null, today: string): { expiry: string | null; daysLeft: number | null; state: ExpiryState } {
@@ -115,7 +139,22 @@ export function expiryStatus(birthday: string | null, today: string): { expiry: 
 // ───────── 等級 ─────────
 
 function sortedUpgrades(p: CitizenPassport) {
-  return [...p.upgrades].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  return [...p.upgrades].sort((a, b) => upgradeAtOf(a) - upgradeAtOf(b));
+}
+
+/** 某個時間點的等級（換發時間起適用）；辦理前為 null */
+export function levelAt(p: CitizenPassport | null | undefined, at: number): PassportLevel | null {
+  if (!p || at < issuedAtOf(p)) return null;
+  let level: PassportLevel = 'model';
+  for (const u of sortedUpgrades(p)) if (upgradeAtOf(u) <= at) level = u.level;
+  return level;
+}
+
+/** 這一級集章的起算時間（epoch ms）：辦理、上次升級、最近補發三者最晚者 */
+export function progressWindowStartAt(p: CitizenPassport): number {
+  const ups = sortedUpgrades(p);
+  const starts = [issuedAtOf(p), ...ups.map(upgradeAtOf), ...p.replacements.map(replacementAtOf)];
+  return Math.max(...starts);
 }
 
 /** 某天的等級（升級當天起適用）；辦理前為 null */
@@ -145,14 +184,42 @@ export function progressWindowStart(p: CitizenPassport): string {
 // ───────── 印章 ─────────
 
 /** 同一個職業每天最多 1 枚：回傳 (jobId, 日期) 不重複的數量 */
-export function countDailyStamps(completions: Pick<Completion, 'jobId' | 'completedAt'>[], from: string, to?: string): number {
+export function countDailyStamps(
+  completions: Pick<Completion, 'jobId' | 'completedAt' | 'countsForPassport'>[],
+  from: string | number,
+  to?: string,
+): number {
   const seen = new Set<string>();
   for (const c of completions) {
     const d = localDateISO(c.completedAt);
-    if (d < from || (to && d > to)) continue;
+    if (c.countsForPassport === false) continue; // 手動指定不算
+    if (c.countsForPassport !== true) {
+      const before = typeof from === 'number' ? c.completedAt < from : d < from;
+      if (before || (to && d > to)) continue;
+    }
     seen.add(`${c.jobId}@${d}`);
   }
   return seen.size;
+}
+
+/**
+ * 這個章算不算進目前護照的集章（不考慮每天 1 枚的去重）：
+ * 手動指定優先；否則看是否在起算時間之後、效期之內
+ */
+export function countsTowardPassport(
+  c: Pick<Completion, 'completedAt' | 'countsForPassport'>,
+  p: CitizenPassport | null | undefined,
+  birthday: string | null,
+): boolean {
+  if (c.countsForPassport !== undefined) return c.countsForPassport;
+  if (!p) return false;
+  const exp = passportExpiry(birthday);
+  return c.completedAt >= progressWindowStartAt(p) && (exp === null || localDateISO(c.completedAt) <= exp);
+}
+
+/** 章是在辦護照之前蓋的（印章牆的「辦護照前」標籤） */
+export function isBeforePassport(c: Pick<Completion, 'completedAt' | 'countsForPassport'>, p: CitizenPassport | null | undefined): boolean {
+  return !!p && c.countsForPassport !== true && c.completedAt < issuedAtOf(p);
 }
 
 export interface StampProgress {
@@ -164,19 +231,21 @@ export interface StampProgress {
   /** 已集滿，可到現場換發 */
   ready: boolean;
   windowStart: string;
+  windowStartAt: number;
 }
 
 export function stampProgress(
   p: CitizenPassport,
-  completions: Pick<Completion, 'jobId' | 'completedAt'>[],
+  completions: Pick<Completion, 'jobId' | 'completedAt' | 'countsForPassport'>[],
   birthday: string | null,
 ): StampProgress {
   const level = currentLevel(p);
   const nextLevel = NEXT_LEVEL[level];
-  const windowStart = progressWindowStart(p);
-  const count = countDailyStamps(completions, windowStart, passportExpiry(birthday) ?? undefined);
+  const windowStartAt = progressWindowStartAt(p);
+  const windowStart = localDateISO(windowStartAt);
+  const count = countDailyStamps(completions, windowStartAt, passportExpiry(birthday) ?? undefined);
   const remaining = Math.max(0, STAMPS_PER_LEVEL - count);
-  return { level, nextLevel, count, needed: STAMPS_PER_LEVEL, remaining, ready: nextLevel !== null && remaining === 0, windowStart };
+  return { level, nextLevel, count, needed: STAMPS_PER_LEVEL, remaining, ready: nextLevel !== null && remaining === 0, windowStart, windowStartAt };
 }
 
 // ───────── 權益計算 ─────────
@@ -209,6 +278,11 @@ export function perkNote(level: PassportLevel, kind: 'wage' | 'experience' | 'sh
   if (kind === 'wage') return `${name}加碼 +${bonus}`;
   if (kind === 'experience') return `${name}減免 ${bonus}`;
   return `${name}減免 ${PERKS[level].shopPerItem}×${items}`;
+}
+
+/** 自動帳的備註：「動物醫師」或「動物醫師（模範市民加碼 +2）」 */
+export function autoKidzosNote(jobName: string, level: PassportLevel | null, base: number, bonus: number): string {
+  return bonus && level ? `${jobName}（${perkNote(level, base > 0 ? 'wage' : 'experience', bonus)}）` : jobName;
 }
 
 /** 今天的 'YYYY-MM-DD'（給沒有 completedAt 的情境） */

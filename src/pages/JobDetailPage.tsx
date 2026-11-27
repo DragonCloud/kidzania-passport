@@ -12,6 +12,8 @@ import { eligibility } from '../lib/age';
 import { formatAgeReq, formatDateTime, formatFloor, formatKidzos, formatNtd } from '../lib/format';
 import { jobById } from '../lib/jobs';
 import type { Completion, Job } from '../types/models';
+import { BeforePassportTag } from '../components/passport/PassportFix';
+import { isBeforePassport } from '../lib/passport';
 
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -42,6 +44,8 @@ function sourceLabel(s: string): { label: string; href?: string } {
 
 function CompletionItem({ c, index }: { c: Completion; index: number }) {
   const thumb = useBlobUrl(c.thumbBlobId);
+  const { child } = useChild();
+  const before = isBeforePassport(c, child.passport);
   return (
     <li className="flex items-center gap-3 py-2">
       {thumb ? (
@@ -52,7 +56,12 @@ function CompletionItem({ c, index }: { c: Completion; index: number }) {
         </span>
       )}
       <div className="min-w-0 flex-1">
-        <p className="text-sm font-bold">第 {index} 次</p>
+        <p className="text-sm font-bold">
+          第 {index} 次
+          {before && <BeforePassportTag className="ml-1.5 align-middle" />}
+          {c.countsForPassport === false && <span className="ml-1.5 align-middle text-[10px] font-bold text-ink/45">不算護照章</span>}
+          {c.countsForPassport === true && <span className="ml-1.5 align-middle text-[10px] font-bold text-emerald-700">手動算護照章</span>}
+        </p>
         <p className="text-xs text-ink/55">{formatDateTime(c.completedAt)}</p>
         {c.note && <p className="truncate text-xs text-ink/70">{c.note}</p>}
       </div>

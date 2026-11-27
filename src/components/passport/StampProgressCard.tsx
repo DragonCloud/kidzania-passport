@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { usePassport } from '../../hooks/usePassport';
-import { formatISODate } from '../../lib/format';
+import { formatDateTime, formatISODate, localDateISO } from '../../lib/format';
+import { PassportFixBanner } from './PassportFix';
 import { LEVEL_LABEL } from '../../lib/passport';
 import { recordUpgrade } from '../../lib/passportStore';
 import { DateSheet } from './PassportSettings';
@@ -36,6 +37,8 @@ export function StampProgressCard() {
         )}
       </div>
 
+      <PassportFixBanner />
+
       {p.nextLevel ? (
         <>
           <p className="mt-3 text-sm">
@@ -56,7 +59,7 @@ export function StampProgressCard() {
             </span>
           </div>
           <p className="mt-2 text-[11px] text-ink/45">
-            從 {formatISODate(p.windowStart)} 起算；同一個職業每天只算 1 枚。實際以護照上的章為準。
+            從 {formatDateTime(p.windowStartAt)} 起算；同一個職業每天只算 1 枚，辦護照前的章不算。實際以護照上的章為準。
           </p>
           <button
             type="button"
@@ -76,7 +79,7 @@ export function StampProgressCard() {
           hint={`換發當天起套用${LEVEL_LABEL[p.nextLevel]}權益，集章從這天重新計算。`}
           today={s.today}
           onClose={() => setUpgrading(false)}
-          onSave={(date) => recordUpgrade(date).then(() => undefined)}
+          onSave={(at) => recordUpgrade(localDateISO(at), undefined, at).then(() => undefined)}
         />
       )}
     </section>

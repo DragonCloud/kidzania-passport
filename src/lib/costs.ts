@@ -8,6 +8,9 @@ export const TWD_CATEGORY_LABEL: Record<TwdCategory, string> = {
   other: '其他',
 };
 
+/** 手動記帳可選的新臺幣分類（門票、護照費各有專屬入口，避免重複計算） */
+export const MANUAL_TWD_CATEGORIES: readonly TwdCategory[] = ['job', 'other'];
+
 /** 新臺幣支出分類；舊資料沒有 twdCategory：有 jobId 視為 job，否則 other */
 export function twdCategoryOf(e: Pick<LedgerEntry, 'twdCategory' | 'jobId'>): TwdCategory {
   return e.twdCategory ?? (e.jobId ? 'job' : 'other');

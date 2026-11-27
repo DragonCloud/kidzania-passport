@@ -94,6 +94,17 @@ export async function listVisits(d: AppDB = db): Promise<Visit[]> {
   return list.sort((a, b) => (a.visitDate === b.visitDate ? b.createdAt - a.createdAt : a.visitDate < b.visitDate ? 1 : -1));
 }
 
+/**
+ * 「目前這次入園」：錢包預設分頁、護照頁 kidZos 卡片、蓋章頁自動歸入都用這個規則。
+ * 今天有入園 → 今天最後建立的那筆；沒有 → 清單第一筆（日期最新、同日取最後建立）。
+ * visits 需為 listVisits() 的順序（新→舊）。
+ */
+export function pickCurrentVisit<T extends Pick<Visit, 'visitDate' | 'createdAt'>>(visits: T[], today: string): T | undefined {
+  const todays = visits.filter((v) => v.visitDate === today);
+  if (todays.length) return todays.reduce((a, b) => (b.createdAt > a.createdAt ? b : a));
+  return visits.find((v) => v.visitDate <= today) ?? visits[0];
+}
+
 /** 最近一次（不含 excludeId）入園結束時的 kidZos 餘額，供下次當起始資金參考 */
 export async function previousVisitBalance(excludeId?: string, d: AppDB = db): Promise<{ visit: Visit; balance: number } | null> {
   const prev = (await listVisits(d)).find((v) => v.id !== excludeId);

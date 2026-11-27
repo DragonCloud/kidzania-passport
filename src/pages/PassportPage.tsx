@@ -6,6 +6,8 @@ import { Link } from 'react-router-dom';
 import { EmptyStamp, Stamp, stampTilt } from '../components/Stamp';
 import { PhotoViewer } from '../components/PhotoViewer';
 import { StampProgressCard } from '../components/passport/StampProgressCard';
+import { BeforePassportTag } from '../components/passport/PassportFix';
+import { isBeforePassport } from '../lib/passport';
 import { useBlobUrl } from '../hooks/useBlobUrl';
 import { useChild } from '../hooks/useChild';
 import { useCompletions } from '../hooks/useCompletions';
@@ -15,6 +17,7 @@ import { useVisits } from '../hooks/useVisits';
 import { eligibility, formatAge } from '../lib/age';
 import { formatISODate, formatNtd, localDateISO } from '../lib/format';
 import { JOBS } from '../lib/jobs';
+import { pickCurrentVisit } from '../lib/visits';
 import type { Completion } from '../types/models';
 
 function Thumb({ c, onOpen }: { c: Completion; onOpen: (c: Completion) => void }) {
@@ -34,7 +37,8 @@ export default function PassportPage() {
   const [wall, setWall] = useState<'all' | 'done'>('all');
   const [viewing, setViewing] = useState<Completion | null>(null);
 
-  const walletVisit = visits.find((v) => v.visitDate === today) ?? visits[0];
+  // 與錢包預設分頁同一規則，並把 visit id 帶進連結，兩頁一定是同一次入園
+  const walletVisit = pickCurrentVisit(visits, today);
   const { kidzos } = useLedger(walletVisit?.id ?? '__none__');
   const costAll = useLiveQuery(async () => summarizeCosts(await db.visits.toArray(), await db.ledger.toArray(), 'all'), []);
   const twdAll = costAll?.twd.total ?? 0;
@@ -48,6 +52,16 @@ export default function PassportPage() {
     }
     return [...groups.entries()];
   }, [completions]);
+
+  // 某職業的章全都在辦護照前 → 印章牆上標「辦護照前」（仍算在收集數裡）
+  const beforePassport = useMemo(() => {
+    const p = child.passport;
+    const set = new Set<string>();
+    if (!p) return set;
+    const anyAfter = new Set(completions.filter((c) => !isBeforePassport(c, p)).map((c) => c.jobId));
+    for (const c of completions) if (!anyAfter.has(c.jobId)) set.add(c.jobId);
+    return set;
+  }, [completions, child.passport]);
 
   const wallJobs = wall === 'done' ? JOBS.filter((j) => stats.has(j.id)) : JOBS;
 
@@ -79,7 +93,7 @@ export default function PassportPage() {
 
       <StampProgressCard />
 
-      <Link to="/passport/wallet" className="mt-3 flex items-center justify-between rounded-3xl bg-ink p-4 text-white shadow-md">
+      <Link to={walletVisit ? `/passport/wallet?visit=${walletVisit.id}` : '/passport/wallet'} className="mt-3 flex items-center justify-between rounded-3xl bg-ink p-4 text-white shadow-md">
         <div>
           <p className="text-xs text-white/65">
             {walletVisit ? (walletVisit.visitDate === today ? '今天的 kidZos' : `${formatISODate(walletVisit.visitDate)} 入園餘額`) : 'kidZos 錢包'}
@@ -133,6 +147,7 @@ export default function PassportPage() {
                     <span className={`text-[11px] ${s ? 'font-bold' : 'text-ink/40'}`}>
                       {j.mapNo ?? '?'} 號{s && s.count > 1 ? `・×${s.count}` : ''}
                     </span>
+                    {s && beforePassport.has(j.id) && <BeforePassportTag className="-mt-0.5" />}
                   </Link>
                 </li>
               );
