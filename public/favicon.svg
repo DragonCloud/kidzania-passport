@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- 自繪圖示：護照＋圓戳，不使用任何 KidZania 官方商標或插畫 -->
+  <rect width="512" height="512" rx="112" fill="#e8572a"/>
+  <rect x="126" y="96" width="260" height="320" rx="28" fill="#fff8ec"/>
+  <rect x="126" y="96" width="36" height="320" rx="14" fill="#f3c9a8"/>
+  <circle cx="276" cy="236" r="78" fill="none" stroke="#e8572a" stroke-width="16"/>
+  <circle cx="276" cy="236" r="52" fill="none" stroke="#e8572a" stroke-width="6" stroke-dasharray="10 9"/>
+  <path d="M276 196 l11 23 25 3 -18 17 5 25 -23 -12 -23 12 5 -25 -18 -17 25 -3z" fill="#e8572a"/>
+  <rect x="196" y="346" width="160" height="16" rx="8" fill="#2b2118" opacity=".25"/>
+</svg>

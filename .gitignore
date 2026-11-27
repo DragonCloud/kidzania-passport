@@ -1,0 +1,16 @@
+node_modules
+dist
+dev-dist
+*.local
+.DS_Store
+
+# ── 官方素材：絕對不可提交到公開 repo ──
+official_map*.pdf
+official*.pdf
+maphi-*.jpg
+maphi-*.png
+*.official.*
+private/
+
+# 使用者備份檔（含孩子照片）
+kidzania-backup-*.zip
