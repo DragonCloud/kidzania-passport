@@ -126,7 +126,7 @@ describe('備份 ZIP', () => {
     expect(await d2.completions.count()).toBe(1);
     expect(await balanceForVisit(v.id, d2)).toBe(60);
     const photoBlob = await d2.blobs.where('kind').equals('photo').first();
-    expect(await photoBlob!.data.text()).toBe('full');
+    expect(await photoBlob!.data!.text()).toBe('full');
     expect(await d2.blobs.get('local-map')).toBeDefined(); // 備份無地圖 → 保留本機地圖
     await d2.delete();
   });

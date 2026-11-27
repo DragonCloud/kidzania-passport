@@ -20,7 +20,7 @@ export async function createVisit(
     createdAt: Date.now(),
   };
   if (!Number.isFinite(visit.startingKidzos) || visit.startingKidzos < 0) throw new Error('起始資金需為 0 以上');
-  await d.transaction('rw', d.visits, d.ledger, async () => {
+  await d.transaction('rw', [d.visits, d.ledger, d.outbox], async () => {
     await d.visits.add(visit);
     if (visit.startingKidzos > 0) await d.ledger.add(grantEntry(visit));
   });
@@ -50,7 +50,7 @@ export async function updateVisit(
   patch: Partial<Pick<Visit, 'visitDate' | 'startingKidzos' | 'notes'>>,
   d: AppDB = db,
 ): Promise<void> {
-  await d.transaction('rw', d.visits, d.ledger, async () => {
+  await d.transaction('rw', [d.visits, d.ledger, d.outbox], async () => {
     const visit = await d.visits.get(id);
     if (!visit) throw new Error('找不到這次入園紀錄');
     const next: Visit = { ...visit, ...patch };
@@ -68,7 +68,7 @@ export async function updateVisit(
  */
 export async function deleteVisit(id: string, opts: { keepRecords?: boolean } = {}, d: AppDB = db): Promise<void> {
   const keep = opts.keepRecords ?? true;
-  await d.transaction('rw', [d.visits, d.ledger, d.completions, d.blobs], async () => {
+  await d.transaction('rw', [d.visits, d.ledger, d.completions, d.blobs, d.outbox], async () => {
     const entries = await d.ledger.where('visitId').equals(id).toArray();
     const comps = await d.completions.where('visitId').equals(id).toArray();
     if (keep) {

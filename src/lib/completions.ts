@@ -1,5 +1,5 @@
 import { db, newId, type AppDB } from '../db/db';
-import type { Completion, LedgerEntry, StoredBlob } from '../types/models';
+import type { Completion, LedgerEntry, StoredBlob, TrashEntry } from '../types/models';
 import { jobById } from './jobs';
 import { autoEntriesForJob, sumKidzos } from './ledger';
 
@@ -62,7 +62,7 @@ export async function addCompletion(
     { completionId: completion.id, visitId: input.visitId, at },
     { chargeKidzos: input.chargeKidzos, recordTwd: input.recordTwd },
   );
-  await d.transaction('rw', d.completions, d.ledger, d.blobs, async () => {
+  await d.transaction('rw', [d.completions, d.ledger, d.blobs, d.outbox], async () => {
     if (input.photo) {
       const { full, thumb } = photoBlobs(input.photo);
       await d.blobs.bulkAdd([full, thumb]);
@@ -86,7 +86,7 @@ export interface UpdateCompletionPatch {
 
 /** 修改完成紀錄；時間與入園關聯會同步到它自動產生的帳 */
 export async function updateCompletion(id: string, patch: UpdateCompletionPatch, d: AppDB = db): Promise<void> {
-  await d.transaction('rw', d.completions, d.ledger, d.blobs, async () => {
+  await d.transaction('rw', [d.completions, d.ledger, d.blobs, d.outbox], async () => {
     const c = await d.completions.get(id);
     if (!c) throw new Error('找不到這筆完成紀錄');
     const next: Completion = { ...c };
@@ -113,14 +113,30 @@ export async function updateCompletion(id: string, patch: UpdateCompletionPatch,
   });
 }
 
-/** 刪除完成紀錄與照片；預設一起刪除它自動產生的帳 */
+/**
+ * 刪除完成紀錄與照片；預設一起刪除它自動產生的帳。
+ * 刪除前把內容放進「最近刪除」（30 天內可還原；家庭同步時雲端也是軟刪除）。
+ */
 export async function deleteCompletion(id: string, opts: { keepLedger?: boolean } = {}, d: AppDB = db): Promise<void> {
-  await d.transaction('rw', d.completions, d.ledger, d.blobs, async () => {
+  await d.transaction('rw', [d.completions, d.ledger, d.blobs, d.outbox, d.trash], async () => {
     const c = await d.completions.get(id);
     if (!c) return;
-    const blobs = [c.photoBlobId, c.thumbBlobId].filter((x): x is string => !!x);
-    if (blobs.length) await d.blobs.bulkDelete(blobs);
+    const blobIds = [c.photoBlobId, c.thumbBlobId].filter((x): x is string => !!x);
+    const blobs = (await d.blobs.bulkGet(blobIds)).filter((b): b is NonNullable<typeof b> => !!b);
     const linked = await d.ledger.where('completionId').equals(id).toArray();
+    const trashed: TrashEntry = {
+      key: `completions:${id}`,
+      label: jobById(c.jobId)?.nameZh ?? '職業體驗',
+      jobId: c.jobId,
+      deletedAt: Date.now(),
+      items: [
+        { tbl: 'completions', id: c.id, data: c },
+        ...blobs.map((b) => ({ tbl: 'blobs' as const, id: b.id, data: b })),
+        ...(opts.keepLedger ? [] : linked.map((e) => ({ tbl: 'ledger' as const, id: e.id, data: e }))),
+      ],
+    };
+    await d.trash.put(trashed);
+    if (blobIds.length) await d.blobs.bulkDelete(blobIds);
     if (opts.keepLedger) {
       for (const e of linked) await d.ledger.put({ ...e, completionId: undefined });
     } else {

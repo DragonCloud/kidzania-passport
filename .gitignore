@@ -14,3 +14,8 @@ private/
 
 # 使用者備份檔（含孩子照片）
 kidzania-backup-*.zip
+
+# 本機環境變數（Supabase 設定）：只提交 .env.example
+.env
+.env.local
+.env.*.local

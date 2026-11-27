@@ -68,3 +68,15 @@ export async function prepareMapImage(file: Blob): Promise<{ blob: Blob; width: 
     if ('close' in src) src.close();
   }
 }
+
+/** 上傳前檢查：超過 1.5 MB 再壓一次（長邊 1600px、品質 0.7） */
+export const UPLOAD_MAX_BYTES = 1.5 * 1024 * 1024;
+export async function shrinkIfNeeded(b: Blob): Promise<Blob> {
+  if (b.size <= UPLOAD_MAX_BYTES) return b;
+  const src = await decode(b);
+  try {
+    return await render(src, PHOTO_MAX_EDGE, 0.7);
+  } finally {
+    if ('close' in src) src.close();
+  }
+}

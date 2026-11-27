@@ -9,6 +9,8 @@ import StampPage from './pages/StampPage';
 import WalletPage from './pages/WalletPage';
 import SettingsPage from './pages/SettingsPage';
 import { UpdatePrompt } from './components/UpdatePrompt';
+import { SyncProvider } from './sync/SyncProvider';
+import { AttachPromptDialog } from './components/sync/AttachPromptDialog';
 
 /** 有底部導覽的四個主頁 */
 function TabLayout() {
@@ -31,21 +33,24 @@ function NotFound() {
 
 export default function App() {
   return (
-    <HashRouter>
-      <UpdatePrompt />
-      <Routes>
-        <Route element={<TabLayout />}>
-          <Route path="/" element={<HomePage />} />
-          <Route path="/map" element={<MapPage />} />
-          <Route path="/passport" element={<PassportPage />} />
-          <Route path="/settings" element={<SettingsPage />} />
-        </Route>
-        <Route path="/job/:id" element={<JobDetailPage />} />
-        <Route path="/passport/wallet" element={<WalletPage />} />
-        <Route path="/job/:id/stamp" element={<StampPage mode="new" />} />
-        <Route path="/completion/:id/edit" element={<StampPage mode="edit" />} />
-        <Route path="*" element={<NotFound />} />
-      </Routes>
-    </HashRouter>
+    <SyncProvider>
+      <HashRouter>
+        <UpdatePrompt />
+        <AttachPromptDialog />
+        <Routes>
+          <Route element={<TabLayout />}>
+            <Route path="/" element={<HomePage />} />
+            <Route path="/map" element={<MapPage />} />
+            <Route path="/passport" element={<PassportPage />} />
+            <Route path="/settings" element={<SettingsPage />} />
+          </Route>
+          <Route path="/job/:id" element={<JobDetailPage />} />
+          <Route path="/passport/wallet" element={<WalletPage />} />
+          <Route path="/job/:id/stamp" element={<StampPage mode="new" />} />
+          <Route path="/completion/:id/edit" element={<StampPage mode="edit" />} />
+          <Route path="*" element={<NotFound />} />
+        </Routes>
+      </HashRouter>
+    </SyncProvider>
   );
 }

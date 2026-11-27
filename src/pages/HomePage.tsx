@@ -4,6 +4,7 @@ import { ChildSetupCard } from '../components/ChildSetupCard';
 import { FilterSheet } from '../components/FilterSheet';
 import { IconFilter, IconSearch } from '../components/icons';
 import { JobCard } from '../components/JobCard';
+import { SyncBadge } from '../components/sync/SyncBadge';
 import { useChild } from '../hooks/useChild';
 import { useCompletions } from '../hooks/useCompletions';
 import { canJoinNow, eligibility, formatAge } from '../lib/age';
@@ -61,7 +62,10 @@ export default function HomePage() {
       }}
     >
       <header>
-        <p className="text-xs font-bold tracking-widest text-brand">KIDZANIA TAIPEI</p>
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-xs font-bold tracking-widest text-brand">KIDZANIA TAIPEI</p>
+          <SyncBadge />
+        </div>
         <h1 className="mt-0.5 text-2xl font-black">{child.name ? `${child.name}的職業護照` : '職業護照'}</h1>
         {age && (
           <p className="mt-1 text-sm text-ink/65">

@@ -118,8 +118,13 @@ export interface StoredBlob {
   id: string;
   kind: BlobKind;
   mime: string;
-  data: Blob;
+  /** 圖檔本體；同步拉下來、但原圖尚未下載時為 undefined */
+  data?: Blob;
   createdAt: number;
+  /** 雲端路徑 {family_id}/{blob_id}.jpg（家庭同步） */
+  remotePath?: string;
+  /** 已上傳到雲端 */
+  uploaded?: boolean;
 }
 
 export type SettingKey = 'officialMap1F' | 'officialMap2F' | 'showServiceIcons' | 'soundOn' | 'lastBackupAt';
@@ -127,6 +132,43 @@ export type SettingKey = 'officialMap1F' | 'officialMap2F' | 'showServiceIcons' 
 export interface AppSetting {
   key: SettingKey;
   value: unknown;
+}
+
+// ============================================================
+// 家庭同步（Dexie version 2）
+// ============================================================
+
+/** 會同步的資料表（settings 與官方地圖永不同步） */
+export type SyncTable = 'child' | 'visits' | 'completions' | 'ledger' | 'blobs';
+export const SYNC_TABLES: SyncTable[] = ['child', 'visits', 'completions', 'ledger', 'blobs'];
+
+/** 待送清單：同一筆（tbl+rowId）只留最新一次 */
+export interface OutboxEntry {
+  tbl: SyncTable;
+  rowId: string;
+  op: 'put' | 'delete';
+  /** 送出順序（遞增） */
+  seq: number;
+  queuedAt: number;
+  /** 刪除時的最後內容（軟刪除仍保留在雲端，供「還原」） */
+  snapshot?: unknown;
+}
+
+export type SyncStateKey = 'familyId' | 'userId' | 'cursor' | 'lastSyncAt' | 'lastError' | 'firstFailAt';
+
+export interface SyncStateRow {
+  key: SyncStateKey;
+  value: unknown;
+}
+
+/** 最近刪除（30 天內可還原） */
+export interface TrashEntry {
+  /** 'completions:<id>' */
+  key: string;
+  label: string;
+  jobId?: string;
+  deletedAt: number;
+  items: { tbl: SyncTable; id: string; data: unknown }[];
 }
 
 // ============================================================

@@ -1,5 +1,6 @@
 import { strFromU8, strToU8, unzipSync, zipSync, type Zippable } from 'fflate';
-import { db, type AppDB } from '../db/db';
+import { allTables, db, type AppDB } from '../db/db';
+import { syncRuntime } from '../sync/hooks';
 import type { AppSetting, BackupManifest, StoredBlob } from '../types/models';
 import { getChild } from './child';
 
@@ -37,7 +38,8 @@ export async function exportBackup(
     d.blobs.toArray(),
     d.settings.toArray(),
   ]);
-  const blobs = allBlobs.filter((b) => includeMaps || b.kind !== 'official-map');
+  // 原圖尚未從雲端下載（data 為空）的不放進 ZIP；雲端仍保有
+  const blobs = allBlobs.filter((b) => (includeMaps || b.kind !== 'official-map') && b.data);
   const settings = allSettings.filter((s) => includeMaps || !MAP_SETTING_KEYS.has(s.key));
 
   const files: Zippable = {};
@@ -45,7 +47,7 @@ export async function exportBackup(
   for (const b of blobs) {
     const file = `blobs/${b.id}.${EXT[b.mime] ?? 'bin'}`;
     // 照片已是 JPEG，不再壓縮（level 0）以加快速度
-    files[file] = [await blobBytes(b.data), { level: 0 }];
+    files[file] = [await blobBytes(b.data!), { level: 0 }];
     blobMeta.push({ id: b.id, kind: b.kind, mime: b.mime, file, createdAt: b.createdAt });
   }
   const manifest: BackupManifest = {
@@ -139,7 +141,7 @@ export async function importBackup(file: Blob, mode: 'replace' | 'merge', d: App
     data: new Blob([entries[b.file]! as Uint8Array<ArrayBuffer>], { type: b.mime }),
   }));
 
-  await d.transaction('rw', [d.child, d.visits, d.completions, d.ledger, d.blobs, d.settings], async () => {
+  await d.transaction('rw', [d.child, d.visits, d.completions, d.ledger, d.blobs, d.settings, d.outbox], async () => {
     if (mode === 'replace') {
       let keepMaps: StoredBlob[] = [];
       let keepMapSettings: AppSetting[] = [];
@@ -163,9 +165,11 @@ export async function importBackup(file: Blob, mode: 'replace' | 'merge', d: App
 
 /** 清除本機全部資料（設定頁「清除本機資料」） */
 export async function clearAllData(d: AppDB = db): Promise<void> {
-  await d.transaction('rw', [d.child, d.visits, d.completions, d.ledger, d.blobs, d.settings], async () => {
-    await Promise.all([d.child.clear(), d.visits.clear(), d.completions.clear(), d.ledger.clear(), d.blobs.clear(), d.settings.clear()]);
+  // clear() 不會觸發 hooks，不會產生雲端軟刪除
+  await d.transaction('rw', allTables(d), async () => {
+    await Promise.all(allTables(d).map((t) => t.clear()));
   });
+  syncRuntime(d).familyId = null;
 }
 
 /** 觸發瀏覽器下載（iOS 會開啟分享／儲存到「檔案」） */
